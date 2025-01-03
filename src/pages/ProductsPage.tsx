@@ -53,7 +53,7 @@ const ProductsPage: React.FC = () => {
 
   const handleAddProduct = async () => {
     try {
-      const response = await apiClient.post("/api/products", newProduct);
+       await apiClient.post("/api/products", newProduct);
       refetchProducts();
       setProductModalOpen(false);
       setNewProduct({
