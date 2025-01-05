@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const apiClient = axios.create({
-  baseURL: "http://localhost:8080",
+  baseURL: "https://inventorymanagementwebapp.onrender.com/",
 });
 
 export default apiClient;
