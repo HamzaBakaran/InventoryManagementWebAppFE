@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
+import { debounce } from "lodash";
 import { useSearchParams } from "react-router-dom";
 import { useUser } from "../hooks/useUser";
 import { useProducts } from "../hooks/useProducts";
@@ -7,14 +8,14 @@ import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import Container from "@mui/material/Container";
 import Box from "@mui/material/Box";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
-import TextField from "@mui/material/TextField";
-import MenuItem from "@mui/material/MenuItem";
 import apiClient from "../api";
 import { Category } from "../types";
 
@@ -22,12 +23,25 @@ const ProductsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const email = searchParams.get("email") || "";
 
-  const { data: user, isLoading: userLoading } = useUser(email);
-  const { data: products, isLoading: productsLoading, refetch: refetchProducts } = useProducts(user?.id || 0);
+  const { data: user } = useUser(email);
+
 
   const [categories, setCategories] = useState<Category[]>([]);
+  const [filters, setFilters] = useState({
+    name: "",
+    description: "",
+    quantity: "",
+    categoryId: "",
+    sortBy: "name",
+    order: "asc",
+  });
+  const [debouncedFilters, setDebouncedFilters] = useState(filters);
+
+  const { data: products, isLoading: productsLoading, refetch } = useProducts(user?.id || 0, debouncedFilters);
+
   const [isProductModalOpen, setProductModalOpen] = useState(false);
   const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
   const [newProduct, setNewProduct] = useState({
     name: "",
     description: "",
@@ -36,8 +50,8 @@ const ProductsPage: React.FC = () => {
     categoryId: "",
     userId: user?.id || 0,
   });
-  const [newCategoryName, setNewCategoryName] = useState("");
 
+  // Fetch categories on component mount
   useEffect(() => {
     const fetchCategories = async () => {
       try {
@@ -47,14 +61,52 @@ const ProductsPage: React.FC = () => {
         console.error("Failed to fetch categories", error);
       }
     };
-
     fetchCategories();
   }, []);
 
+  // Ensure userId is correctly set in the new product
+  useEffect(() => {
+    if (user?.id) {
+      setNewProduct((prevProduct) => ({
+        ...prevProduct,
+        userId: user.id,
+      }));
+    }
+  }, [user]);
+
+  // Debounce updates to filters
+  const debouncedUpdateFilters = useMemo(
+    () =>
+      debounce((newFilters) => {
+        setDebouncedFilters(newFilters);
+      }, 300),
+    []
+  );
+
+  const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    const updatedFilters = { ...filters, [name]: value };
+    setFilters(updatedFilters);
+    debouncedUpdateFilters(updatedFilters); // Update debounced filters
+  };
+
+  const handleSortChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    const updatedFilters = { ...filters, [name]: value };
+    setFilters(updatedFilters);
+    debouncedUpdateFilters(updatedFilters); // Update debounced filters
+  };
+
+  useEffect(() => {
+    return () => {
+      debouncedUpdateFilters.cancel(); // Cleanup debounce on unmount
+    };
+  }, [debouncedUpdateFilters]);
+
   const handleAddProduct = async () => {
     try {
-       await apiClient.post("/api/products", newProduct);
-      refetchProducts();
+      await apiClient.post("/api/products", newProduct);
+      refetch();
       setProductModalOpen(false);
       setNewProduct({
         name: "",
@@ -82,65 +134,133 @@ const ProductsPage: React.FC = () => {
     }
   };
 
-  const handleDeleteProduct = async (productId: number) => {
-    try {
-      await apiClient.delete(`/api/products/${productId}`);
-      refetchProducts(); // Refetch products after deletion
-    } catch (error) {
-      console.error("Failed to delete product", error);
-      alert("Failed to delete product. Please try again.");
-    }
-  };
-
-  if (userLoading || productsLoading) {
-    return (
-      <Container sx={{ textAlign: "center", marginTop: 5 }}>
-        <CircularProgress />
-        <Typography variant="h6" sx={{ marginTop: 2 }}>
-          Loading...
-        </Typography>
-      </Container>
-    );
-  }
-
   return (
     <Container>
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          backgroundColor: "#f5f5f5",
-          padding: 2,
-          borderRadius: 2,
-          marginBottom: 4,
-          boxShadow: 1,
-        }}
-      >
-        <Typography
-          variant="h5"
-          sx={{
-            fontWeight: "bold",
-            textAlign: "center",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          Products for {email}
-        </Typography>
-        <Button variant="contained" color="primary" onClick={() => setProductModalOpen(true)}>
+      <Typography variant="h4" sx={{ marginBottom: 3, fontWeight: "bold", textAlign: "center" }}>
+        Products for {email}
+      </Typography>
+
+      {/* Add Product Button */}
+      <Box sx={{ display: "flex", justifyContent: "flex-end", marginBottom: 3 }}>
+        <Button variant="contained" onClick={() => setProductModalOpen(true)}>
           Add Product
         </Button>
       </Box>
-      {products && (
-        <ProductList
-          products={products}
-          onDelete={handleDeleteProduct}
-          categories={categories} // Pass categories to ProductList
-          onEditSuccess={refetchProducts} // Pass refetchProducts for refreshing the list after editing
+
+      {/* Filtering Controls */}
+      <Box
+        sx={{
+          display: "flex",
+          gap: 2,
+          marginBottom: 3,
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+        }}
+      >
+        <TextField
+          name="name"
+          label="Name"
+          variant="outlined"
+          size="small"
+          value={filters.name}
+          onChange={handleFilterChange}
+          sx={{ flex: 1, minWidth: 200 }}
         />
-      )}
+        <TextField
+          name="description"
+          label="Description"
+          variant="outlined"
+          size="small"
+          value={filters.description}
+          onChange={handleFilterChange}
+          sx={{ flex: 1, minWidth: 200 }}
+        />
+        <TextField
+          name="quantity"
+          label="Quantity"
+          variant="outlined"
+          size="small"
+          type="number"
+          value={filters.quantity}
+          onChange={handleFilterChange}
+          sx={{ flex: 1, minWidth: 150 }}
+        />
+        <TextField
+          name="categoryId"
+          label="Category"
+          variant="outlined"
+          size="small"
+          select
+          value={filters.categoryId}
+          onChange={handleFilterChange}
+          sx={{ flex: 1, minWidth: 200 }}
+        >
+          <MenuItem value="">All Categories</MenuItem>
+          {categories.map((category) => (
+            <MenuItem key={category.id} value={category.id}>
+              {category.name}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          name="sortBy"
+          label="Sort By"
+          variant="outlined"
+          size="small"
+          select
+          value={filters.sortBy}
+          onChange={handleSortChange}
+          sx={{ flex: 1, minWidth: 150 }}
+        >
+          <MenuItem value="name">Name</MenuItem>
+          <MenuItem value="description">Description</MenuItem>
+          <MenuItem value="quantity">Quantity</MenuItem>
+          <MenuItem value="categoryId">Category</MenuItem>
+        </TextField>
+        <TextField
+          name="order"
+          label="Order"
+          variant="outlined"
+          size="small"
+          select
+          value={filters.order}
+          onChange={handleSortChange}
+          sx={{ flex: 1, minWidth: 150 }}
+        >
+          <MenuItem value="asc">Ascending</MenuItem>
+          <MenuItem value="desc">Descending</MenuItem>
+        </TextField>
+      </Box>
+
+      {/* Product List */}
+      <Box sx={{ position: "relative" }}>
+        {productsLoading && (
+          <Box
+            sx={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              backgroundColor: "rgba(255, 255, 255, 0.8)",
+              zIndex: 10,
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <CircularProgress />
+          </Box>
+        )}
+        {products && (
+          <ProductList
+            products={products}
+            onDelete={() => refetch()}
+            categories={categories}
+            onEditSuccess={refetch}
+          />
+        )}
+      </Box>
 
       {/* Add Product Modal */}
       <Dialog open={isProductModalOpen} onClose={() => setProductModalOpen(false)}>
@@ -196,7 +316,15 @@ const ProductsPage: React.FC = () => {
                 {category.name}
               </MenuItem>
             ))}
-            <MenuItem value="add_new">Add New Category</MenuItem>
+            <MenuItem
+              value="add_new"
+              sx={{
+                color: "#1976d2", // Custom color for the "Add New Category" option
+                fontWeight: "bold",
+              }}
+            >
+              Add New Category
+            </MenuItem>
           </TextField>
         </DialogContent>
         <DialogActions>

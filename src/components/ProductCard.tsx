@@ -13,24 +13,29 @@ import DialogContent from "@mui/material/DialogContent";
 import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
 import MenuItem from "@mui/material/MenuItem";
+import Box from "@mui/material/Box";
 import { Product, Category } from "../types";
 import apiClient from "../api";
 
 interface ProductCardProps {
   product: Product;
   onDelete: (id: number) => void;
-  categories: Category[]; // Categories for the dropdown
-  onEditSuccess: () => void; // Callback to refresh the product list after editing
+  categories: Category[];
+  onEditSuccess: () => void;
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product, onDelete, categories, onEditSuccess }) => {
-  const { id, name, description, minimalThreshold } = product;
+  const { id, name, description, minimalThreshold, categoryId } = product;
+
+  // Find the category name based on categoryId
+  const categoryName = categories.find((category) => category.id === categoryId)?.name || "N/A";
+
   const [quantity, setQuantity] = useState(product.quantity);
   const [loading, setLoading] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isEditModalOpen, setEditModalOpen] = useState(false);
-  const [editedProduct, setEditedProduct] = useState<Product>(product);
+  const [editedProduct, setEditedProduct] = useState<Product>({ ...product });
 
   const handleUpdateQuantity = async (newQuantity: number) => {
     try {
@@ -44,7 +49,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onDelete, categories
       }
 
       const updatedQuantity = response.data.product?.quantity ?? response.data.quantity;
+
+      // Synchronize states
       setQuantity(updatedQuantity);
+      setEditedProduct((prev) => ({ ...prev, quantity: updatedQuantity }));
     } catch (error) {
       console.error("Failed to update quantity", error);
       alert("Failed to update quantity. Please try again.");
@@ -70,8 +78,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onDelete, categories
   const handleEditProduct = async () => {
     try {
       setLoading(true);
-      await apiClient.put(`/api/products/${id}`, editedProduct);
-      onEditSuccess(); // Notify parent to refresh the product list
+      const response = await apiClient.put(`/api/products/${id}`, editedProduct);
+
+      if (response.data.message) {
+        setWarning(response.data.message);
+      } else {
+        setWarning(null);
+      }
+
+      setQuantity(editedProduct.quantity); // Update card quantity from modal
+      onEditSuccess();
       setEditModalOpen(false);
     } catch (error) {
       console.error("Failed to update product", error);
@@ -79,32 +95,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onDelete, categories
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleIncrease = () => handleUpdateQuantity(quantity + 1);
-  const handleDecrease = () => {
-    if (quantity > 0) handleUpdateQuantity(quantity - 1);
-  };
-
-  const handleWarningClose = () => {
-    setWarning(null);
-  };
-
-  const openDeleteDialog = () => {
-    setDeleteDialogOpen(true);
-  };
-
-  const closeDeleteDialog = () => {
-    setDeleteDialogOpen(false);
-  };
-
-  const openEditModal = () => {
-    setEditedProduct(product); // Prefill modal with the current product data
-    setEditModalOpen(true);
-  };
-
-  const closeEditModal = () => {
-    setEditModalOpen(false);
   };
 
   return (
@@ -120,8 +110,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onDelete, categories
           <Typography variant="body1" sx={{ marginTop: 1 }}>
             Minimal Threshold: {minimalThreshold}
           </Typography>
-          <Typography variant="body1" sx={{ marginTop: 2, display: "flex", alignItems: "center" }}>
-            <Button size="small" color="primary" onClick={handleDecrease} disabled={loading || quantity <= 0}>
+          <Typography variant="body2" color="text.secondary" sx={{ marginTop: 1, fontStyle: "italic" }}>
+            Category: {categoryName}
+          </Typography>
+          <Box sx={{ marginTop: 2, display: "flex", alignItems: "center" }}>
+            <Button size="small" color="primary" onClick={() => handleUpdateQuantity(quantity - 1)} disabled={loading || quantity <= 0}>
               -
             </Button>
             <TextField
@@ -133,30 +126,28 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onDelete, categories
               size="small"
               sx={{ width: "60px", mx: 1 }}
             />
-            <Button size="small" color="primary" onClick={handleIncrease} disabled={loading}>
+            <Button size="small" color="primary" onClick={() => handleUpdateQuantity(quantity + 1)} disabled={loading}>
               +
             </Button>
-          </Typography>
+          </Box>
         </CardContent>
         <CardActions>
-          <Button size="small" color="primary" onClick={openEditModal} disabled={loading}>
+          <Button size="small" color="primary" onClick={() => setEditModalOpen(true)} disabled={loading}>
             Edit
           </Button>
-          <Button size="small" color="secondary" onClick={openDeleteDialog} disabled={loading}>
+          <Button size="small" color="secondary" onClick={() => setDeleteDialogOpen(true)} disabled={loading}>
             Delete
           </Button>
         </CardActions>
       </Card>
 
       {/* Snackbar for displaying warnings */}
-      <Snackbar open={!!warning} autoHideDuration={6000} onClose={handleWarningClose}>
-        <Alert onClose={handleWarningClose} severity="warning" sx={{ width: "100%" }}>
-          {warning}
-        </Alert>
+      <Snackbar open={!!warning} autoHideDuration={6000} onClose={() => setWarning(null)}>
+        <Alert severity="warning">{warning}</Alert>
       </Snackbar>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={isDeleteDialogOpen} onClose={closeDeleteDialog}>
+      <Dialog open={isDeleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>Confirm Deletion</DialogTitle>
         <DialogContent>
           <DialogContentText>
@@ -164,7 +155,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onDelete, categories
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeDeleteDialog} color="primary" disabled={loading}>
+          <Button onClick={() => setDeleteDialogOpen(false)} color="primary" disabled={loading}>
             Cancel
           </Button>
           <Button onClick={handleDeleteProduct} color="secondary" disabled={loading}>
@@ -174,7 +165,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onDelete, categories
       </Dialog>
 
       {/* Edit Product Modal */}
-      <Dialog open={isEditModalOpen} onClose={closeEditModal}>
+      <Dialog open={isEditModalOpen} onClose={() => setEditModalOpen(false)}>
         <DialogTitle>Edit Product</DialogTitle>
         <DialogContent>
           <TextField
@@ -197,7 +188,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onDelete, categories
             type="number"
             label="Quantity"
             value={editedProduct.quantity}
-            onChange={(e) => setEditedProduct({ ...editedProduct, quantity: Number(e.target.value) })}
+            onChange={(e) => {
+              const newQuantity = Number(e.target.value);
+              setEditedProduct((prev) => ({ ...prev, quantity: newQuantity }));
+              setQuantity(newQuantity); // Synchronize with card
+            }}
           />
           <TextField
             fullWidth
@@ -223,7 +218,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onDelete, categories
           </TextField>
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeEditModal} color="primary">
+          <Button onClick={() => setEditModalOpen(false)} color="primary">
             Cancel
           </Button>
           <Button onClick={handleEditProduct} color="primary" variant="contained">
