@@ -18,10 +18,14 @@ import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
 import apiClient from "../api";
 import { Category } from "../types";
+import SalesReportModal from "../components/SalesReportModal";
 
 const ProductsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const email = searchParams.get("email") || "";
+  const [isReportModalOpen, setReportModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
 
   const { data: user } = useUser(email);
 
@@ -104,9 +108,12 @@ const ProductsPage: React.FC = () => {
   }, [debouncedUpdateFilters]);
 
   const handleAddProduct = async () => {
+    setIsLoading(true);
+    setSuccessMessage(""); // Clear previous messages
     try {
       await apiClient.post("/api/products", newProduct);
       refetch();
+      setSuccessMessage("Product added successfully!");
       setProductModalOpen(false);
       setNewProduct({
         name: "",
@@ -119,22 +126,84 @@ const ProductsPage: React.FC = () => {
     } catch (error) {
       console.error("Failed to add product", error);
       alert("Failed to add product. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleAddCategory = async () => {
+    setIsLoading(true);
+    setSuccessMessage(""); // Clear previous messages
     try {
       const response = await apiClient.post("/categories", { name: newCategoryName });
-      setCategories((prevCategories) => [...prevCategories, response.data]);
+      const newCategory = response.data;
+  
+      setCategories((prevCategories) => [...prevCategories, newCategory]);
+      setNewProduct((prevProduct) => ({
+        ...prevProduct,
+        categoryId: newCategory.id, // Automatically select the new category
+      }));
+      setSuccessMessage("Category added successfully!");
       setCategoryModalOpen(false);
       setNewCategoryName("");
     } catch (error) {
       console.error("Failed to add category", error);
       alert("Failed to add category. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
   };
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(""), 3000); // Clear after 3 seconds
+      return () => clearTimeout(timer); // Cleanup timer on unmount or when successMessage changes
+    }
+  }, [successMessage]);
+  
+  
 
   return (
+    <>
+    {/* Global Loader */}
+    {isLoading && (
+      <Box
+        sx={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          backgroundColor: "rgba(255, 255, 255, 0.8)",
+          zIndex: 2000,
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <CircularProgress />
+      </Box>
+    )}
+
+    {/* Success Message */}
+    {successMessage && (
+      <Box
+        sx={{
+          position: "fixed",
+          bottom: "16px",
+          left: "50%",
+          transform: "translateX(-50%)",
+          backgroundColor: "#4caf50",
+          color: "#fff",
+          padding: "8px 16px",
+          borderRadius: "4px",
+          boxShadow: "0px 2px 4px rgba(0, 0, 0, 0.2)",
+          zIndex: 2000,
+        }}
+      >
+        <Typography>{successMessage}</Typography>
+      </Box>
+    )}
+    
     <Container>
       <Typography variant="h4" sx={{ marginBottom: 3, fontWeight: "bold", textAlign: "center" }}>
         Products for {email}
@@ -144,6 +213,9 @@ const ProductsPage: React.FC = () => {
       <Box sx={{ display: "flex", justifyContent: "flex-end", marginBottom: 3 }}>
         <Button variant="contained" onClick={() => setProductModalOpen(true)}>
           Add Product
+        </Button>
+        <Button variant="contained" color="secondary" onClick={() => setReportModalOpen(true)}>
+          Generate Report
         </Button>
       </Box>
 
@@ -358,7 +430,13 @@ const ProductsPage: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+            {/* Sales Report Modal */}
+            <SalesReportModal
+        open={isReportModalOpen}
+        onClose={() => setReportModalOpen(false)}
+      />
     </Container>
+    </>
   );
 };
 
